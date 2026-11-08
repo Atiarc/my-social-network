@@ -150,7 +150,39 @@ footer{
 <section id="account" class="page hidden">
 
  <div class="card" id="authBox">
-  <h2>নতুন Account তৈরি করুন</h2>
+  <h2>নতুন Account তৈরি করুন (Email ছাড়া)</h2>
+
+  <form id="usernameSignupForm">
+   <label>আপনার নাম</label>
+   <input id="usernameSignupName" type="text" required maxlength="60" placeholder="আপনার পুরো নাম">
+
+   <label>Username</label>
+   <input id="usernameSignupUsername" type="text" required minlength="3" maxlength="25"
+   pattern="[A-Za-z0-9_]+" placeholder="যেমন: atiarc123">
+
+   <label>Password</label>
+   <input id="usernameSignupPassword" type="password" required minlength="8" placeholder="কমপক্ষে ৮ অক্ষর">
+
+   <label>Confirm Password</label>
+   <input id="usernameSignupConfirm" type="password" required minlength="8" placeholder="Password আবার লিখুন">
+
+   <button class="btn" type="submit" id="usernameSignupButton">Register</button>
+  </form>
+
+  <hr>
+
+  <h2>Username দিয়ে Login</h2>
+  <form id="usernameLoginForm">
+   <label>Username</label>
+   <input id="usernameLoginUsername" type="text" required minlength="3" maxlength="25" pattern="[A-Za-z0-9_]+" placeholder="আপনার Username">
+   <label>Password</label>
+   <input id="usernameLoginPassword" type="password" required placeholder="Password">
+   <button class="btn" type="submit" id="usernameLoginButton">Login with Username</button>
+  </form>
+
+  <hr>
+
+  <h2>Email দিয়ে পুরোনো Account Login</h2>
 
   <form id="signupForm">
    <label>আপনার নাম</label>
@@ -178,7 +210,7 @@ footer{
 
   <hr>
 
-  <h2>আগে থেকেই Account আছে?</h2>
+  <h2>আগে থেকেই Account আছে? Email দিয়ে Login করুন</h2>
 
   <form id="loginForm">
    <label>Email Address</label>
@@ -379,7 +411,119 @@ document.getElementById("signupForm")
 });
 
 // ==================================
-// LOGIN
+// USERNAME REGISTRATION (new accounts)
+// ==================================
+
+document.getElementById("usernameSignupForm")
+.addEventListener("submit", async function(e) {
+ e.preventDefault();
+ clearMessage();
+
+ const name = document.getElementById("usernameSignupName").value.trim();
+ const username = document.getElementById("usernameSignupUsername").value.trim().toLowerCase();
+ const password = document.getElementById("usernameSignupPassword").value;
+ const confirm = document.getElementById("usernameSignupConfirm").value;
+
+ if (!/^[a-z0-9_]{3,25}$/.test(username)) {
+  message("Username ৩-২৫ অক্ষরের হতে হবে। ইংরেজি ছোট হাতের অক্ষর, সংখ্যা ও _ ব্যবহার করুন।","error");
+  return;
+ }
+ if (password !== confirm) {
+  message("দুটি Password মিলছে না।","error");
+  return;
+ }
+ if (password.length < 8) {
+  message("Password কমপক্ষে ৮ অক্ষরের হতে হবে।","error");
+  return;
+ }
+
+ const btn = document.getElementById("usernameSignupButton");
+ btn.disabled = true;
+ btn.textContent = "অপেক্ষা করুন...";
+
+ try {
+  const { data, error } = await db.functions.invoke("username-auth", {
+   body: { action: "register", username, display_name: name, password }
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+
+  const { data: resolved, error: resolveError } = await db.functions.invoke("username-auth", {
+   body: { action: "resolve-login", username }
+  });
+  if (resolveError) throw resolveError;
+  if (resolved?.error) throw new Error(resolved.error);
+
+  const { data: loginData, error: loginError } = await db.auth.signInWithPassword({
+   email: resolved.email,
+   password
+  });
+  if (loginError) throw loginError;
+
+  currentSession = loginData.session;
+  await ensureProfile(loginData.user);
+  document.getElementById("usernameSignupForm").reset();
+  updateAccountBox();
+  message("Registration সফল হয়েছে। স্বাগতম!","success");
+  showPage("profile");
+ } catch (err) {
+  message("Registration সমস্যা: " + (err.message || "আবার চেষ্টা করুন।"),"error");
+ } finally {
+  btn.disabled = false;
+  btn.textContent = "Register";
+ }
+});
+
+// ==================================
+// USERNAME LOGIN (new accounts)
+// ==================================
+
+document.getElementById("usernameLoginForm")
+.addEventListener("submit", async function(e) {
+ e.preventDefault();
+ clearMessage();
+
+ const username = document.getElementById("usernameLoginUsername").value.trim().toLowerCase();
+ const password = document.getElementById("usernameLoginPassword").value;
+
+ if (!/^[a-z0-9_]{3,25}$/.test(username)) {
+  message("Username সঠিক নয়।","error");
+  return;
+ }
+
+ const btn = document.getElementById("usernameLoginButton");
+ btn.disabled = true;
+ btn.textContent = "Login হচ্ছে...";
+
+ try {
+  const { data: resolved, error: resolveError } = await db.functions.invoke("username-auth", {
+   body: { action: "resolve-login", username }
+  });
+  if (resolveError) throw resolveError;
+  if (resolved?.error) throw new Error(resolved.error);
+
+  const { data, error } = await db.auth.signInWithPassword({
+   email: resolved.email,
+   password
+  });
+  if (error) throw new Error("Username অথবা Password সঠিক নয়।");
+
+  currentSession = data.session;
+  await ensureProfile(data.user);
+  document.getElementById("usernameLoginForm").reset();
+  updateAccountBox();
+  message("Login সফল হয়েছে। স্বাগতম!","success");
+  showPage("profile");
+ } catch (err) {
+  message("Login সমস্যা: " + (err.message || "আবার চেষ্টা করুন।"),"error");
+ } finally {
+  btn.disabled = false;
+  btn.textContent = "Login with Username";
+ }
+});
+
+// ==================================
+// EXISTING EMAIL LOGIN
 // ==================================
 
 document.getElementById("loginForm")
